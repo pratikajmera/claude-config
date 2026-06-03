@@ -27,12 +27,13 @@ Contains global hooks, model settings, themes, permissions, and plugin configura
     "defaultMode": "auto"
   },
   "hooks": {
-    "Stop": [
+    "SessionEnd": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "(echo '#!/bin/bash'; jq -r '\"claude --resume \" + .session_id') > \"$(pwd)/claude-resume.sh\" && chmod +x \"$(pwd)/claude-resume.sh\" 2>/dev/null || true",
+            "command": "jq -r '\"printf \\\"#!/bin/bash\\\\nclaude --resume \" + .session_id + \"\\\\n\\\" > \" + .cwd + \"/claude-resume.sh && chmod +x \" + .cwd + \"/claude-resume.sh\"' | sh",
             "timeout": 5
           }
         ]
@@ -58,13 +59,13 @@ Contains global hooks, model settings, themes, permissions, and plugin configura
 - Maintains security — blocks dangerous operations
 - Balanced approach — safety with efficiency
 
-### Hook Explanation: Stop Hook (Session Resume)
+### Hook Explanation: SessionEnd Hook (Session Resume)
 
-**What it does:** When Claude quits, automatically creates an executable shell script in your project directory.
+**What it does:** When Claude quits, automatically creates an executable `claude-resume.sh` script in the current working directory containing the exact `claude --resume <session-id>` command for the session that just ended.
 
-**Output file:** `./claude-resume.sh`
+**Output file:** `./claude-resume.sh` (created in your current working directory)
 
-**How to use:** 
+**How to use:**
 ```bash
 ./claude-resume.sh
 ```
@@ -72,10 +73,24 @@ Contains global hooks, model settings, themes, permissions, and plugin configura
 This resumes your exact Claude session without losing context.
 
 **Technical details:**
-- Extracts session ID from Claude's context on exit
-- Creates executable script with proper shebang (`#!/bin/bash`)
-- Saves to current working directory so you have the command in context
-- Timeout: 5 seconds (non-blocking)
+- Hook runs automatically when the SessionEnd event fires (when Claude exits)
+- Claude Code passes JSON data to the hook containing `session_id` and `cwd` (current working directory)
+- The `jq` command processes this JSON and constructs a shell script
+- Uses `printf` to write a shebang (`#!/bin/bash`) and the resume command
+- `chmod +x` makes the script executable
+- Timeout: 5 seconds
+
+**Hook command breakdown:**
+```bash
+jq -r '\"printf \\\"#!/bin/bash\\\\nclaude --resume \" + .session_id + \"\\\\n\\\" > \" + .cwd + \"/claude-resume.sh && chmod +x \" + .cwd + \"/claude-resume.sh\"' | sh
+```
+
+- `jq -r` reads the JSON input and outputs raw strings
+- `.session_id` extracts the session ID from the JSON
+- `.cwd` extracts the current working directory from the JSON
+- `printf` creates the script with proper newlines
+- `chmod +x` makes it executable
+- The entire jq expression is piped to `sh` for execution
 
 ---
 
@@ -272,20 +287,35 @@ claude
 Check that your settings loaded correctly:
 ```bash
 cat ~/.claude/settings.json
+jq . ~/.claude/settings.json  # Validates JSON syntax
 ```
+
+### Step 8: Test the SessionEnd Hook
+1. Start a Claude Code session: `claude`
+2. Exit normally (Ctrl+C or `exit`)
+3. Verify `claude-resume.sh` was created in your working directory:
+   ```bash
+   ls -la claude-resume.sh
+   ```
+4. Test resuming:
+   ```bash
+   ./claude-resume.sh
+   ```
 
 ---
 
 ## 8. Session Resume Workflow
 
-After quitting Claude, a `claude-resume.sh` script is automatically created in your project directory.
+After quitting Claude, `claude-resume.sh` is automatically created in your current working directory with the resume command for that session.
 
 **To resume your session:**
 ```bash
 ./claude-resume.sh
 ```
 
-The script contains your session ID and automatically reconnects you to the exact same conversation context.
+The script contains your session ID and automatically reconnects you to the exact same conversation context. It is overwritten each time you quit in that directory, always reflecting your most recent session in that location.
+
+**Note:** The script is created in the directory where Claude Code was running, not in your home directory. This allows you to maintain separate resume scripts for different projects.
 
 ---
 
@@ -318,8 +348,8 @@ Edit `~/.claude/settings.json`:
 ### Add New Permissions
 Edit `.claude/settings.local.json` and add to the `permissions.allow` array.
 
-### Modify Stop Hook
-Edit the `hooks.Stop` section in `~/.claude/settings.json` to customize what happens when Claude quits.
+### Modify SessionEnd Hook
+Edit the `hooks.SessionEnd` section in `~/.claude/settings.json` to customize what happens when Claude exits. The current hook creates an executable `claude-resume.sh` script using `jq` to extract the session ID from the session JSON payload.
 
 ---
 
@@ -331,14 +361,21 @@ Edit the `hooks.Stop` section in `~/.claude/settings.json` to customize what hap
 - Restart Claude Code
 
 **Hooks not running?**
-- Check syntax with: `jq -e '.hooks.Stop' ~/.claude/settings.json`
-- Verify the hook command works manually
+- Check SessionEnd hook syntax: `jq -e '.hooks.SessionEnd' ~/.claude/settings.json`
+- Verify jq is installed: `which jq`
 - Check Claude Code logs: `tail -f ~/.claude/debug/*.log` (if debug directory exists)
 
 **Resume script not created?**
-- Verify `jq` is installed: `which jq`
-- Check write permissions in project directory: `ls -ld .`
-- Manually test the hook command with a dummy session ID
+- Exit Claude Code cleanly (Ctrl+C) to trigger SessionEnd hook
+- Check if `claude-resume.sh` exists: `ls -la ./claude-resume.sh`
+- Verify it's executable: `file ./claude-resume.sh`
+- Test the hook command manually:
+  ```bash
+  echo '{"session_id":"test-123","cwd":"."}' | jq -r '"printf \"#!/bin/bash\\nclaude --resume " + .session_id + "\\n\" > " + .cwd + "/test-resume.sh && chmod +x " + .cwd + "/test-resume.sh"' | sh
+  cat test-resume.sh
+  ```
+- Verify jq is installed and working: `jq --version`
+- Check write permissions on current directory: `touch ./test-file && rm ./test-file`
 
 ---
 
