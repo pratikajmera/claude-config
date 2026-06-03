@@ -19,10 +19,13 @@ This document contains all custom settings, hooks, rules, and configurations for
 
 ## 1. Global Settings (`~/.claude/settings.json`)
 
-Contains global hooks, model settings, themes, and plugin configuration.
+Contains global hooks, model settings, themes, permissions, and plugin configuration.
 
 ```json
 {
+  "permissions": {
+    "defaultMode": "auto"
+  },
   "hooks": {
     "Stop": [
       {
@@ -45,6 +48,15 @@ Contains global hooks, model settings, themes, and plugin configuration.
   "model": "haiku"
 }
 ```
+
+### Auto Mode Enabled
+
+**What it does:** Claude automatically handles safe operations without prompting (e.g., reading files, running tests, creating commits). Destructive operations (deleting files, force-pushing, dropping tables) still require explicit permission.
+
+**Benefits:**
+- Faster workflow — no permission prompts for routine tasks
+- Maintains security — blocks dangerous operations
+- Balanced approach — safety with efficiency
 
 ### Hook Explanation: Stop Hook (Session Resume)
 
